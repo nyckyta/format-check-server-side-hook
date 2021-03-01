@@ -1,0 +1,71 @@
+#!/usr/bin/python3
+
+import sys
+import re
+import ssl
+import subprocess
+from smtplib import SMTP_SSL
+
+maxHeaderLength = 70
+minHeaderLength = 10
+mergePatern = re.compile(r'^Merge branch *')
+softHeaderPattern = re.compile(r'^(feat|fix|docs|style|refactor|test|chore|optimize)(\([A-Z]*-[0-9]*\))?: [a-zA-Z ,]{5,}$')
+hardHeaderPattern = re.compile(r'^(feat|fix|docs|style|refactor|test|chore|optimize)(\([A-Z]*-[0-9]*\)): [a-zA-Z ,]{5,}$')
+lastLinePattern = re.compile(r'[a-zA-Z]*-[0-9]*')
+
+COMMIT_SEPARATOR = "@SOME@RANDOM@SEPARATPOR@"
+
+def checkMsgFormat(commitMsgWithoutComments):
+    msgParts = commitMsgWithoutComments.split('\n')
+    subject = msgParts[0]    
+    errors = []
+    if (mergePatern.match(subject)): #ignore merge commits
+        return errors
+    if len(subject) > maxHeaderLength or len(subject) < minHeaderLength:
+        errors.append("Subject must have size between 10 and 70 characters")
+    if not softHeaderPattern.fullmatch(subject):
+        errors.append('Subject does not match pattern, please see this guide: https://karma-runner.github.io/2.0/dev/git-commit-msg.html. Also note that <subject> should not be less than 5 symbols, and general header length should take at least 10 symbols.')
+    if hardHeaderPattern.fullmatch(subject) and (len(msgParts) < 4 or not lastLinePattern.match(msgParts[-2])): #last element is always empty string
+        errors.append("Last line of commit message should contain information about ticket related to the commit")
+    return errors
+
+
+def sendMail(msgTo, addressTo):
+    # Create a secure SSL context
+    context = ssl.create_default_context()
+
+    with SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login("SENDER_EMAIL", "SENDER_PASSWORD")
+        server.sendmail("SENDER_EMAIL", addressTo, msgTo)
+
+
+def getRawCommitMessages(commitsRefs):
+    commitStr = " ".join(commitsRefs)
+    process = subprocess.Popen(['git show --quiet --format="%B' + COMMIT_SEPARATOR + '" '+ commitStr], shell="True", stdout=subprocess.PIPE)
+    msg = str(process.communicate()[0], "utf-8")
+    return msg
+
+def getEmailOfAuthorFromRef(commitRef):
+    process = subprocess.Popen(['git show --quiet --format="%ae" ' + commitRef], shell="True", stdout=subprocess.PIPE)
+    msg = str(process.communicate()[0], "utf-8")
+    return msg
+
+def buildEmailMsg(errors):
+    ###your msg here
+
+errors = set()
+refs = sys.stdin.readlines()
+for i in range(0, len(refs)):
+    if refs[i][-1] == '\n':
+        refs[i] = refs[i][:-1] #remove \n symbols from eash string
+    
+joinedCommitMsgs = getRawCommitMessages(refs)
+commitMsgs = joinedCommitMsgs.split(COMMIT_SEPARATOR + "\n")
+for msg in commitMsgs[:-1]: #ignore last empty element which occures always using split
+    errors.update(checkMsgFormat(msg))
+if len(errors) < 1:
+    exit(0)
+emailMsg = buildEmailMsg(errors)
+address = getEmailOfAuthorFromRef(refs[-1]) #get email from the last commit
+sendMail(emailMsg, address)
+exit(0)

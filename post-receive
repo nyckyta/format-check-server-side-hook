@@ -52,6 +52,7 @@ def getEmailOfAuthorFromRef(commitRef):
 
 def buildEmailMsg(errors):
     ###your msg here
+    return None
 
 errors = set()
 refs = sys.stdin.readlines()
